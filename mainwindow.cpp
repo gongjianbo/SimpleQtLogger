@@ -3,6 +3,8 @@
 
 #include "LogManager.h"
 
+#include <QDir>
+#include <QDateTime>
 #include <QThread>
 #include <QtConcurrentRun>
 
@@ -20,16 +22,16 @@ MainWindow::MainWindow(QWidget *parent)
         const QString text=ui->lineEdit->text();
         //qFatal为致命错误，这里没处理
         switch (ui->comboBox->currentIndex()) {
-        case 0: qDebug()<<text; break;
-        case 1: qInfo()<<text; break;
-        case 2: qWarning()<<text; break;
-        case 3: qCritical()<<text; break;
+        case 0: qDebug()<<"[debug]"<<text; break;
+        case 1: qInfo()<<"[info]"<<text; break;
+        case 2: qWarning()<<"[warning]"<<text; break;
+        case 3: qCritical()<<"[critical]"<<text; break;
         default:
             break;
         }
 
         QtConcurrent::run([](){
-            qDebug()<<"QtConcurrent::run";
+            qDebug()<<"QtConcurrent::run"<<QDateTime::currentDateTime();
         });
     });
 }

@@ -5,10 +5,12 @@
 
 int main(int argc, char *argv[])
 {
-    LogManager::getInstance(); //初始化一下
+    LogManager::getInstance()->initManager();//初始化
 
     QApplication a(argc, argv);
+
     MainWindow w;
     w.show();
+
     return a.exec();
 }
