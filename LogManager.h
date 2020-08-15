@@ -33,7 +33,9 @@ public:
 
 signals:
     //可以关联信号接收日志信息，如显示到ui中
-    void newLog(const QString &log);
+    //注意，如果槽函数为lambda或者其他没有接收者的情况，需要保证槽函数中的变量有效性
+    //因为static变量的生命周期更长，可能槽函数所在模块已经释放资源，最好connect加上接收者
+    void newLog(int msgType, const QString &log);
 
 private:
     //保留默认handle，用于输出到控制台
