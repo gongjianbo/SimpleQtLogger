@@ -50,15 +50,17 @@ Window {
                 }
             }
         }
-        TextArea {
-            id: log_view
+        ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            wrapMode: TextArea.WordWrap
-            textFormat: TextArea.RichText
-            selectByMouse: true
-            background: Rectangle {
-                border.color: "gray"
+            TextArea {
+                id: log_view
+                wrapMode: TextArea.WordWrap
+                textFormat: TextArea.RichText
+                selectByMouse: true
+                background: Rectangle {
+                    border.color: "gray"
+                }
             }
         }
     }
@@ -66,9 +68,9 @@ Window {
     Connections {
         target: logManager
         // 低版本的连接方式
-        //onNewLog: {
-        //    log_view.append(logManager.richText(msgType, log))
-        //}
+        // onNewLog: {
+        //     log_view.append(logManager.richText(msgType, log))
+        // }
         function onNewLog(msgType, log)
         {
             log_view.append(logManager.richText(msgType, log))

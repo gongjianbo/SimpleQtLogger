@@ -10,9 +10,10 @@ int main(int argc, char *argv[])
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 #endif
-    // Qt的filter可以过滤日志内容，这时重定向内也是接收不到的
-    //QLoggingCategory::setFilterRules("*.warning=false");
-    LogManager::getInstance()->initManager();//初始化
+    // Qt 的 filter 可以过滤日志内容，这时重定向内也是接收不到的
+    // QLoggingCategory::setFilterRules("*.warning=false");
+    // 初始化
+    LogManager::getInstance()->initManager();
 
     QApplication app(argc, argv);
 

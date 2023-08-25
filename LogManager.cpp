@@ -1,5 +1,5 @@
 #include "LogManager.h"
-#include <QApplication>
+#include <QCoreApplication>
 #include <QDir>
 #include <QThread>
 #include <QTextStream>
@@ -7,7 +7,7 @@
 
 LogManager::LogManager()
 {
-    //initManager();
+
 }
 
 LogManager::~LogManager()
@@ -38,32 +38,49 @@ QString LogManager::richText(int msgType, const QString &log)
     return log_text;
 }
 
-void LogManager::initManager(const QString &path)
+void LogManager::initManager(const QString &dir)
 {
+    QMutexLocker locker(&logMutex);
+
     // 保存路径
-    filePath = path;
-    if (filePath.isEmpty())
+    logDir = dir;
+    if (logDir.isEmpty())
     {
-        // 用到了 QApplication::applicationDirPath()，需要先实例化一个app
-        int argc = 0;
-        QApplication app(argc,nullptr);
-        filePath = app.applicationDirPath() + "/log";
+        // 用到了 QCoreApplication::applicationDirPath()，需要先实例化一个app
+        if (qApp) {
+            logDir = qApp->applicationDirPath() + "/log";
+        } else {
+            int argc = 0;
+            QCoreApplication app(argc,nullptr);
+            logDir = app.applicationDirPath() + "/log";
+        }
     }
-    QDir dir(filePath);
-    if (!dir.exists())
-    {
-        // QFile 不会自动创建不存在的目录
-        dir.mkpath(filePath);
-    }
-    elapsedTimer.start();
+
+    // 计算下次创建文件的时间点
+    fileNextTime = calcNextTime();
     // 重定向qdebug到自定义函数
     defaultOutput = qInstallMessageHandler(LogManager::outputHandler);
 }
 
 void LogManager::freeManager()
 {
-    file.close();
-    qInstallMessageHandler(nullptr);
+    QMutexLocker locker(&logMutex);
+
+    logFile.close();
+    if (defaultOutput) {
+        qInstallMessageHandler(defaultOutput);
+        defaultOutput = nullptr;
+    }
+}
+
+qint64 LogManager::getFileSizeLimit() const
+{
+    return fileSizeLimit;
+}
+
+void LogManager::setFileSizeLimit(qint64 limit)
+{
+    fileSizeLimit = limit;
 }
 
 void LogManager::outputHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
@@ -76,7 +93,7 @@ void LogManager::outputLog(QtMsgType type, const QMessageLogContext &context, co
 {
     // widget 中的 log，context.category = default
     // qml 中的 log，context.category = qml，此时默认的 output 会增加一个 "qml:" 前缀输出
-    //fprintf(stderr, "print: type = %d, category = %s \n", type, context.category);
+    // fprintf(stderr, "print: type = %d, category = %s \n", type, context.category);
 
     // 如果要写文件需要加锁，因为函数调用在 debug 调用线程
     QMutexLocker locker(&logMutex);
@@ -102,28 +119,11 @@ void LogManager::outputLog(QtMsgType type, const QMessageLogContext &context, co
     // 日志信息
     stream << msg;
 
-    //写入文件
-    if (file.isOpen()) {
-        // elapsed 距离 start 的毫秒数
-        // 这里设置 1 分钟用来测试
-        if (elapsedTimer.elapsed() > 1000 * 60){
-            file.close();
-            // 重新计时
-            elapsedTimer.restart();
-        }
-    }
-    if (!file.isOpen()) {
-        // 新的文件
-        file.setFileName(filePath + QString("/log_%1.txt")
-                         .arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmm")));
-        // Append 追加模式，避免同一文件被清除
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Append)) {
-            emit newLog(QtWarningMsg, "Open log file error:" + file.errorString() + file.fileName());
-        }
-    }
-    if (file.isOpen()) {
+    // 判断是否需要打开或者新建文件
+    prepareFile();
+    if (logFile.isOpen()) {
         // 写入文件
-        stream.setDevice(&file);
+        stream.setDevice(&logFile);
         stream << out_text << Qt::endl;
     }
 
@@ -158,10 +158,53 @@ void LogManager::outputLog(QtMsgType type, const QMessageLogContext &context, co
         stream << "\033[31m"; break;
     case QtFatalMsg: // fatal 黑底红字
         // qFatal 表示致命错误，默认处理会报异常的
-        stream<<"\033[0;31;40m"; break;
+        stream << "\033[0;31;40m"; break;
     default: // defualt 默认颜色
         stream << "\033[0m"; break;
     }
     stream << out_text << "\033[0m";
     defaultOutput(type, context, cmd_text);
+}
+
+qint64 LogManager::calcNextTime() const
+{
+    // 可以参考 spdlog 的 daily_file_sink 优化，这里先用 Qt 接口进行实现
+    return QDate::currentDate().addDays(1).startOfDay().toMSecsSinceEpoch();
+}
+
+void LogManager::prepareFile()
+{
+    // 写入文件
+    // 先计算好下一次生成文件的时间点，然后和当前进行比较，这里没有考虑调节系统日期的情况
+    if (fileNextTime <= QDateTime::currentDateTime().toMSecsSinceEpoch()){
+        logFile.close();
+        // 计算下次创建文件的时间点
+        fileNextTime = calcNextTime();
+    }
+    // 文件超过了大小
+    if (logFile.isOpen() && logFile.size() >= fileSizeLimit) {
+        logFile.close();
+    }
+    // 生成文件名，打开文件
+    if (!logFile.isOpen()) {
+        // 创建文件前创建目录，QFile 不会自动创建不存在的目录
+        QDir dir(logDir);
+        if (!dir.exists()) {
+            dir.mkpath(logDir);
+        }
+        // 文件日期
+        QString file_day = QDate::currentDate().toString("yyyyMMdd");
+        QString file_path = QString("%1/log_%2.txt").arg(logDir).arg(file_day);
+        logFile.setFileName(file_path);
+        if (logFile.exists() && logFile.size() >= fileSizeLimit) {
+            QString file_time = QTime::currentTime().toString("hhmmss");
+            file_path = QString("%1/log_%2_%3.txt").arg(logDir).arg(file_day).arg(file_time);
+            logFile.setFileName(file_path);
+        }
+        // 打开新的文件
+        // Append 追加模式，避免同一文件被清除
+        if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            emit newLog(QtWarningMsg, "Open log file error:" + logFile.errorString() + logFile.fileName());
+        }
+    }
 }
